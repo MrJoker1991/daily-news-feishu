@@ -1,10 +1,10 @@
 import express from "express";
 import type { Request, Response } from "express";
-import { FEISHU_VERIFICATION_TOKEN, PORT } from "./config.js";
+import { FEISHU_VERIFICATION_TOKEN, PORT, feedsConfig } from "./config.js";
 import { sendCardsToChat, sendCardsToUser } from "./feishu-api.js";
 import { fetchAllNewsStreaming } from "./fetcher.js";
 import { processNews } from "./processor.js";
-import { buildFeishuCards, buildSourceCard, periodTitle } from "./formatter.js";
+import { buildSummaryCard, buildSourceCard } from "./formatter.js";
 import type { FeishuCard, NewsItem } from "./types.js";
 
 const DEBUG = process.env.DEBUG === "1";
@@ -152,27 +152,28 @@ async function streamFetch(
 ): Promise<void> {
   const allItems: NewsItem[] = [];
 
+  // 统计总源数
+  let totalSources = 0;
+  for (const list of Object.values(feedsConfig.feeds)) totalSources += list.length;
+
   await fetchAllNewsStreaming(async (name, items, isFirst) => {
-    // 对单个源做简单评分
     for (const item of items) item.score = simpleScore(item);
     items.sort((a, b) => b.score - a.score);
 
-    const card = buildSourceCard(name, items, isFirst);
+    const card = buildSourceCard(name, items, isFirst, totalSources);
     await sendCard(card);
     allItems.push(...items);
   });
 
-  // 所有源拉完后，发一张头条汇总
+  // 所有源拉完后，发一张汇总
   if (allItems.length > 0) {
     const { headlines } = processNews(allItems);
-    if (headlines.length > 0) {
-      const today = new Date().toLocaleDateString("zh-CN", {
-        timeZone: "Asia/Shanghai",
-        year: "numeric", month: "2-digit", day: "2-digit", weekday: "short",
-      });
-      const cards = buildFeishuCards(headlines, {} as any, today);
-      for (const card of cards) await sendCard(card);
-    }
+    const today = new Date().toLocaleDateString("zh-CN", {
+      timeZone: "Asia/Shanghai",
+      year: "numeric", month: "2-digit", day: "2-digit", weekday: "short",
+    });
+    const cards = buildSummaryCard(headlines, allItems, today);
+    for (const card of cards) await sendCard(card);
   }
 }
 

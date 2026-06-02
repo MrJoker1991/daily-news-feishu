@@ -1,6 +1,6 @@
 import { fetchAllNews } from "./fetcher.js";
 import { processNews } from "./processor.js";
-import { buildFeishuCards } from "./formatter.js";
+import { buildSummaryCard } from "./formatter.js";
 import { pushToFeishuWebhook } from "./pusher.js";
 import { startScheduler } from "./scheduler.js";
 import { startServer } from "./server.js";
@@ -31,7 +31,7 @@ export async function runDailyTask(): Promise<void> {
   });
 
   console.log("[INFO] 生成飞书消息卡片...");
-  const cards = buildFeishuCards(headlines, categorized, today);
+  const cards = buildSummaryCard(headlines, rawNews, today);
 
   console.log(`[INFO] 推送中 (${cards.length} 张卡片)...`);
   const success = await pushToFeishuWebhook(cards);
