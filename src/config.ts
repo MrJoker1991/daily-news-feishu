@@ -14,7 +14,13 @@ export const FEISHU_APP_SECRET = process.env.FEISHU_APP_SECRET || "";
 export const FEISHU_VERIFICATION_TOKEN =
   process.env.FEISHU_VERIFICATION_TOKEN || "";
 export const PORT = parseInt(process.env.PORT || "3000", 10);
-export const CRON_EXPRESSION = process.env.CRON_EXPRESSION || "0 8 * * *";
+export const CRON_EXPRESSIONS = (
+  process.env.CRON_EXPRESSIONS ||
+  "30 9 * * *,0 13 * * *,0 20 * * *"
+)
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
 
 const feedsPath = path.join(__dirname, "feeds.json");
 const feedsRaw = fs.readFileSync(feedsPath, "utf-8");
