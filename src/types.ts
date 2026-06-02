@@ -21,5 +21,5 @@ export interface FeedsConfig {
 export interface FeishuCard {
   config: { wide_screen_mode: boolean };
   header: { title: { tag: string; content: string }; template?: string };
-  elements: Array<{ tag: string; content: string }>;
+  elements: Array<Record<string, any>>;
 }
