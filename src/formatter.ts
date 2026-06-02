@@ -79,7 +79,7 @@ export function buildFeishuCards(
   const sourceMap = groupBySource(allItems);
   const sourceOrder = [
     "36氪", "IT之家", "少数派",
-    "华尔街见闻", "财新网", "雪球",
+    "华尔街见闻", "财新网", "东方财富", "雪球",
     "澎湃新闻", "界面新闻",
     "百度热搜", "知乎日报",
   ];
