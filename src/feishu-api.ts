@@ -51,7 +51,22 @@ export async function sendCardsToChat(
   chatId: string,
   cards: FeishuCard[]
 ): Promise<void> {
-  log("SEND_START", { chatId, cardCount: cards.length });
+  await sendCards(chatId, "chat_id", cards);
+}
+
+export async function sendCardsToUser(
+  openId: string,
+  cards: FeishuCard[]
+): Promise<void> {
+  await sendCards(openId, "open_id", cards);
+}
+
+async function sendCards(
+  receiveId: string,
+  receiveType: "chat_id" | "open_id",
+  cards: FeishuCard[]
+): Promise<void> {
+  log("SEND_START", { receiveType, receiveId, cardCount: cards.length });
 
   let token: string;
   try {
@@ -64,13 +79,13 @@ export async function sendCardsToChat(
   for (let i = 0; i < cards.length; i++) {
     try {
       const body = {
-        receive_id: chatId,
+        receive_id: receiveId,
         msg_type: "interactive",
         content: JSON.stringify(cards[i]),
       };
 
       const { data } = await axios.post(
-        "https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=chat_id",
+        `https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=${receiveType}`,
         body,
         {
           headers: {
@@ -100,9 +115,7 @@ export async function sendCardsToChat(
       );
     }
 
-    if (i < cards.length - 1) {
-      await sleep(500);
-    }
+    if (i < cards.length - 1) await sleep(500);
   }
 }
 

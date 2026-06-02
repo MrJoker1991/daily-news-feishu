@@ -1,7 +1,7 @@
 import express from "express";
 import type { Request, Response } from "express";
 import { FEISHU_VERIFICATION_TOKEN, PORT } from "./config.js";
-import { sendCardsToChat } from "./feishu-api.js";
+import { sendCardsToChat, sendCardsToUser } from "./feishu-api.js";
 import { fetchAllNews } from "./fetcher.js";
 import { processNews } from "./processor.js";
 import { buildFeishuCards } from "./formatter.js";
@@ -20,7 +20,6 @@ function log(label: string, data?: any): void {
 const app = express();
 app.use(express.json());
 
-// 调试：打印所有请求
 app.use((req: Request, _res: Response, next) => {
   if (DEBUG) {
     log("REQ", { method: req.method, path: req.path, body: req.body });
@@ -28,7 +27,6 @@ app.use((req: Request, _res: Response, next) => {
   next();
 });
 
-// URL 验证 / 事件接收
 app.post("/feishu/event", async (req: Request, res: Response) => {
   const body = req.body;
   log("收到请求", DEBUG ? body : body.type || body.header?.event_type || "未知类型");
@@ -40,7 +38,6 @@ app.post("/feishu/event", async (req: Request, res: Response) => {
     return;
   }
 
-  // 打印完整事件结构（关键：确认飞书实际发来的格式）
   log("EVENT_BODY", body);
 
   // 验证 token
@@ -51,10 +48,8 @@ app.post("/feishu/event", async (req: Request, res: Response) => {
     return;
   }
 
-  // 立即返回 200
   res.json({ code: 0 });
 
-  // 异步处理
   try {
     await handleEvent(body);
   } catch (err) {
@@ -64,7 +59,6 @@ app.post("/feishu/event", async (req: Request, res: Response) => {
 });
 
 async function handleEvent(body: any): Promise<void> {
-  // 尝试多种可能的事件类型字段位置
   const eventType =
     body.header?.event_type ||
     body.event_type ||
@@ -73,72 +67,92 @@ async function handleEvent(body: any): Promise<void> {
 
   log("EVENT_TYPE", eventType);
 
-  // 消息事件
+  // 用户发送消息（包含群聊）
   if (eventType === "im.message.receive_v1") {
-    const event = body.event || body;
-    const message = event?.message;
+    await handleMessageEvent(body);
+    return;
+  }
 
-    log("MESSAGE", message);
+  // 机器人菜单点击
+  if (eventType === "application.bot.menu_v6") {
+    await handleMenuEvent(body);
+    return;
+  }
 
-    if (!message) {
-      log("NO_MESSAGE", event);
-      return;
-    }
-
-    const chatId = message.chat_id;
-    if (!chatId) {
-      log("NO_CHAT_ID", message);
-      return;
-    }
-
-    // 解析消息内容（飞书消息 content 是 JSON 字符串）
-    let msgText = "";
-    try {
-      const content = typeof message.content === "string"
-        ? JSON.parse(message.content)
-        : message.content || {};
-      msgText = content.text || content.title || "";
-
-      // 如果 content 本身就是文本（非 JSON），直接使用
-      if (typeof message.content === "string" && !msgText) {
-        try {
-          // 尝试解析为 JSON
-          const parsed = JSON.parse(message.content);
-          msgText = parsed.text || parsed.title || "";
-        } catch {
-          // 纯文本内容
-          msgText = message.content;
-        }
-      }
-    } catch {
-      msgText = "";
-    }
-
-    log("MSG_TEXT", { text: msgText, chatId });
-
-    // 匹配触发关键词
-    const triggers = ["今日新闻", "新闻早报", "每日新闻", "早报", "news", "新闻"];
-    const matched = triggers.some((t) => msgText.includes(t));
-
-    if (!matched) {
-      log("NO_MATCH", "消息不匹配触发关键词，忽略");
-      return;
-    }
-
-    log("START_FETCH", "触发新闻拉取...");
-    await pushNewsToChat(chatId);
-  } else if (eventType) {
+  if (eventType) {
     log("UNHANDLED_EVENT", eventType);
   }
 }
 
+async function handleMessageEvent(body: any): Promise<void> {
+  const event = body.event || body;
+  const message = event?.message;
+  if (!message?.chat_id) {
+    log("NO_CHAT_ID", message);
+    return;
+  }
+  const chatId = message.chat_id;
+  const msgText = extractText(message);
+
+  log("MSG_TEXT", { text: msgText, chatId });
+
+  const triggers = ["今日新闻", "新闻早报", "每日新闻", "早报", "news", "新闻"];
+  if (triggers.some((t) => msgText.includes(t))) {
+    log("START_FETCH", "消息触发新闻拉取...");
+    await pushNewsToChat(chatId);
+  }
+}
+
+async function handleMenuEvent(body: any): Promise<void> {
+  const event = body.event || {};
+  const openId = event.operator?.operator_id?.open_id;
+
+  if (!openId) {
+    log("NO_OPEN_ID", event);
+    return;
+  }
+
+  log("MENU_CLICK", {
+    eventKey: event.event_key,
+    openId,
+    timestamp: event.timestamp,
+  });
+
+  log("START_FETCH", "菜单触发新闻拉取...");
+  await pushNewsToUser(openId);
+}
+
+function extractText(message: any): string {
+  try {
+    if (typeof message.content === "string") {
+      const parsed = JSON.parse(message.content);
+      return parsed.text || "";
+    }
+    return message.content?.text || "";
+  } catch {
+    return typeof message.content === "string" ? message.content : "";
+  }
+}
+
 async function pushNewsToChat(chatId: string): Promise<void> {
+  const cards = await fetchAndBuildCards();
+  if (!cards) return;
+  await sendCardsToChat(chatId, cards);
+}
+
+async function pushNewsToUser(openId: string): Promise<void> {
+  const cards = await fetchAndBuildCards();
+  if (!cards) return;
+  await sendCardsToUser(openId, cards);
+}
+
+async function fetchAndBuildCards(): Promise<ReturnType<typeof buildFeishuCards> | null> {
   log("FETCHING", "开始拉取 RSS...");
   const rawNews = await fetchAllNews();
 
   if (rawNews.length === 0) {
     log("FETCH_EMPTY", "未拉取到任何新闻");
-    return;
+    return null;
   }
 
   log("PROCESSING", { count: rawNews.length });
@@ -156,17 +170,14 @@ async function pushNewsToChat(chatId: string): Promise<void> {
   });
 
   const cards = buildFeishuCards(headlines, categorized, today);
-  log("SENDING", { cards: cards.length, chatId });
-  await sendCardsToChat(chatId, cards);
-  log("DONE", "推送完成");
+  log("CARDS_BUILT", { cards: cards.length });
+  return cards;
 }
 
-// 健康检查
 app.get("/health", (_req: Request, res: Response) => {
   res.json({ status: "ok", time: new Date().toISOString() });
 });
 
-// 调试端点：手动触发推送（带 chat_id 参数）
 app.post("/debug/send", async (req: Request, res: Response) => {
   const chatId = req.body.chat_id;
   if (!chatId) {
