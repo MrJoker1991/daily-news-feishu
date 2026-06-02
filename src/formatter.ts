@@ -1,21 +1,19 @@
 import type { NewsItem, FeishuCard } from "./types.js";
 
-const CATEGORY_ICONS: Record<string, string> = {
-  "科技": "💻",
-  "财经": "💰",
-  "社会": "🌍",
-  "科学": "🔬",
-  "热点": "🔥",
-  "综合": "📋",
-};
-
-const GAP = "\n\n"; // 条目间距
 const GREY = (t: string) => `<font color='grey'>${t}</font>`;
 
-function buildHeadlinesSection(items: NewsItem[]): string {
+function periodTitle(): { label: string; icon: string } {
+  const h = new Date().getHours();
+  if (h < 12) return { icon: "🌅", label: "新闻早报" };
+  if (h < 18) return { icon: "☀️", label: "午间速递" };
+  return { icon: "🌙", label: "晚间速递" };
+}
+
+// 今日头条：跨来源高分聚合
+function buildHeadlines(items: NewsItem[]): string {
   if (items.length === 0) return "";
   const parts: string[] = [];
-  for (let i = 0; i < Math.min(items.length, 12); i++) {
+  for (let i = 0; i < Math.min(items.length, 10); i++) {
     const item = items[i];
     const link = item.link ? `[阅读](${item.link})` : "";
     parts.push(
@@ -25,33 +23,29 @@ function buildHeadlinesSection(items: NewsItem[]): string {
       ].join("\n")
     );
   }
-  return parts.join(GAP);
+  return parts.join("\n\n");
 }
 
-function buildCategorySection(catName: string, items: NewsItem[]): string {
-  if (items.length === 0) return "";
+// 按来源分组
+function groupBySource(items: NewsItem[]): Map<string, NewsItem[]> {
+  const map = new Map<string, NewsItem[]>();
+  for (const item of items) {
+    const list = map.get(item.source) || [];
+    list.push(item);
+    map.set(item.source, list);
+  }
+  // 按来源的新闻数量排序
+  return new Map([...map.entries()].sort((a, b) => b[1].length - a[1].length));
+}
+
+function buildSourceBlock(source: string, items: NewsItem[]): string {
   const parts: string[] = [];
   for (let i = 0; i < Math.min(items.length, 6); i++) {
     const item = items[i];
     const link = item.link ? `[→](${item.link})` : "";
-    parts.push(
-      [
-        `**${item.title}**  ${GREY(link)}`,
-        GREY(`　　　${item.source}`),
-      ].join("\n")
-    );
+    parts.push(`**${item.title}**  ${GREY(link)}`);
   }
-  return parts.join(GAP);
-}
-
-function buildOneLiners(items: NewsItem[]): string {
-  const pool = items.sort(() => Math.random() - 0.5).slice(0, 8);
-  const parts: string[] = [];
-  for (const item of pool) {
-    const oneLine = item.summary?.split(/[。！？\n]/)[0] || item.title;
-    parts.push(GREY(oneLine.slice(0, 100)));
-  }
-  return parts.join(GAP);
+  return `**${source}**  ${GREY(`(${items.length}条)`)}\n${parts.join("\n\n")}`;
 }
 
 export function buildFeishuCards(
@@ -60,43 +54,53 @@ export function buildFeishuCards(
   dateStr: string
 ): FeishuCard[] {
   const now = new Date().toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" });
+  const { icon, label } = periodTitle();
+  const allItems = Object.values(categorized).flat();
 
   const sections: Record<string, any>[] = [];
 
   // 标题区
   sections.push({
     tag: "markdown",
-    content: `📰 **每日新闻早报**\n${GREY(dateStr)}`,
+    content: `${icon} **${label}**\n${GREY(dateStr + "  ·  " + allItems.length + " 条新闻")}`,
   });
   sections.push({ tag: "hr" });
 
   // 今日头条
-  sections.push({
-    tag: "markdown",
-    content: `🔥 **今日头条**\n${buildHeadlinesSection(headlines)}`,
-  });
-  sections.push({ tag: "hr" });
-
-  // 各分类
-  const catOrder = ["科技", "财经", "社会", "热点", "综合"];
-  for (const cat of catOrder) {
-    const items = categorized[cat];
-    if (!items || items.length === 0) continue;
-    const icon = CATEGORY_ICONS[cat] || "📌";
+  if (headlines.length > 0) {
     sections.push({
       tag: "markdown",
-      content: `${icon} **${cat}**\n${buildCategorySection(cat, items)}`,
+      content: `🔥 **今日头条**\n${buildHeadlines(headlines)}`,
     });
     sections.push({ tag: "hr" });
   }
 
-  // 一句话速览
-  const allItems = Object.values(categorized).flat();
-  sections.push({
-    tag: "markdown",
-    content: `📝 **今日速览**\n${buildOneLiners(allItems)}`,
-  });
-  sections.push({ tag: "hr" });
+  // 按来源排列
+  const sourceMap = groupBySource(allItems);
+  const sourceOrder = [
+    "36氪", "IT之家", "少数派",
+    "华尔街见闻", "财新网", "雪球",
+    "澎湃新闻", "界面新闻",
+    "百度热搜", "知乎日报",
+  ];
+  for (const src of sourceOrder) {
+    const items = sourceMap.get(src);
+    if (!items || items.length === 0) continue;
+    sourceMap.delete(src); // 标记已处理
+    sections.push({
+      tag: "markdown",
+      content: buildSourceBlock(src, items),
+    });
+    sections.push({ tag: "hr" });
+  }
+  // 剩余的来源
+  for (const [src, items] of sourceMap) {
+    sections.push({
+      tag: "markdown",
+      content: buildSourceBlock(src, items),
+    });
+    sections.push({ tag: "hr" });
+  }
 
   // 页脚
   sections.push({
@@ -129,12 +133,13 @@ export function buildFeishuCards(
 }
 
 function makeCard(elements: Record<string, any>[], part: number): FeishuCard {
+  const { icon, label } = periodTitle();
   return {
     config: { wide_screen_mode: true },
     header: {
       title: {
         tag: "plain_text",
-        content: part > 0 ? `每日新闻早报 (${part})` : "每日新闻早报",
+        content: part > 0 ? `${icon} ${label} (${part})` : `${icon} ${label}`,
       },
       template: "blue",
     },
