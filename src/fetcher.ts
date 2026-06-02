@@ -4,7 +4,7 @@ import type { NewsItem } from "./types.js";
 import { feedsConfig } from "./config.js";
 
 const parser = new Parser({
-  timeout: 15000,
+  timeout: 30000,
   headers: {
     "User-Agent":
       "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
@@ -48,7 +48,7 @@ async function fetchZhihuDaily(): Promise<NewsItem[]> {
   try {
     const { data } = await axios.get(
       "https://news-at.zhihu.com/api/4/news/latest",
-      { timeout: 15000 }
+      { timeout: 30000 }
     );
     const stories = data.stories || [];
     return stories.map((s: any) => ({
