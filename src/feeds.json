@@ -8,11 +8,9 @@
     "财经": [
       { "name": "华尔街见闻", "url": "https://rsshub.rssforever.com/wallstreetcn/news/global", "weight": 3 },
       { "name": "财新网", "url": "https://rsshub.rssforever.com/caixin/latest", "weight": 3 },
-      { "name": "东方财富", "url": "https://rsshub.rssforever.com/eastmoney/search/A%E8%82%A1", "weight": 3 },
       { "name": "雪球", "url": "https://xueqiu.com/hots/topic/rss", "weight": 2 }
     ],
     "社会": [
-      { "name": "澎湃新闻", "url": "https://rsshub.rssforever.com/thepaper/featured", "weight": 2 },
       { "name": "界面新闻", "url": "https://a.jiemian.com/index.php?m=article&a=rss", "weight": 2 }
     ],
     "热点": [
