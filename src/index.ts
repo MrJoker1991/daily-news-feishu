@@ -47,13 +47,11 @@ export async function runDailyTask(): Promise<void> {
 const args = process.argv.slice(2);
 
 if (args.includes("--server")) {
-  // HTTP 服务模式：接收飞书菜单回调
+  startScheduler();
   startServer();
 } else if (args.includes("--serve")) {
-  // 定时任务模式
   startScheduler();
 } else {
-  // 手动单次执行
   runDailyTask()
     .then(() => process.exit(0))
     .catch((err) => {
