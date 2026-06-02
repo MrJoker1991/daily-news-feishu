@@ -2,9 +2,10 @@ import express from "express";
 import type { Request, Response } from "express";
 import { FEISHU_VERIFICATION_TOKEN, PORT } from "./config.js";
 import { sendCardsToChat, sendCardsToUser } from "./feishu-api.js";
-import { fetchAllNews } from "./fetcher.js";
+import { fetchAllNewsStreaming } from "./fetcher.js";
 import { processNews } from "./processor.js";
-import { buildFeishuCards } from "./formatter.js";
+import { buildFeishuCards, buildSourceCard, periodTitle } from "./formatter.js";
+import type { FeishuCard, NewsItem } from "./types.js";
 
 const DEBUG = process.env.DEBUG === "1";
 
@@ -135,43 +136,59 @@ function extractText(message: any): string {
 }
 
 async function pushNewsToChat(chatId: string): Promise<void> {
-  const cards = await fetchAndBuildCards();
-  if (!cards) return;
-  await sendCardsToChat(chatId, cards);
+  log("FETCHING_STREAM", "开始流式拉取...");
+  const sendCard = (card: FeishuCard) => sendCardsToChat(chatId, [card]);
+  await streamFetch(sendCard);
 }
 
 async function pushNewsToUser(openId: string): Promise<void> {
-  const cards = await fetchAndBuildCards();
-  if (!cards) return;
-  await sendCardsToUser(openId, cards);
+  log("FETCHING_STREAM", "开始流式拉取...");
+  const sendCard = (card: FeishuCard) => sendCardsToUser(openId, [card]);
+  await streamFetch(sendCard);
 }
 
-async function fetchAndBuildCards(): Promise<ReturnType<typeof buildFeishuCards> | null> {
-  log("FETCHING", "开始拉取 RSS...");
-  const rawNews = await fetchAllNews();
+async function streamFetch(
+  sendCard: (card: FeishuCard) => Promise<void>
+): Promise<void> {
+  const allItems: NewsItem[] = [];
 
-  if (rawNews.length === 0) {
-    log("FETCH_EMPTY", "未拉取到任何新闻");
-    return null;
-  }
+  await fetchAllNewsStreaming(async (name, items, isFirst) => {
+    // 对单个源做简单评分
+    for (const item of items) item.score = simpleScore(item);
+    items.sort((a, b) => b.score - a.score);
 
-  log("PROCESSING", { count: rawNews.length });
-  const { headlines, categorized } = processNews(rawNews);
-
-  const catCount = Object.values(categorized).flat().length;
-  log("PROCESSED", { headlines: headlines.length, categorized: catCount });
-
-  const today = new Date().toLocaleDateString("zh-CN", {
-    timeZone: "Asia/Shanghai",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    weekday: "short",
+    const card = buildSourceCard(name, items, isFirst);
+    await sendCard(card);
+    allItems.push(...items);
   });
 
-  const cards = buildFeishuCards(headlines, categorized, today);
-  log("CARDS_BUILT", { cards: cards.length });
-  return cards;
+  // 所有源拉完后，发一张头条汇总
+  if (allItems.length > 0) {
+    const { headlines } = processNews(allItems);
+    if (headlines.length > 0) {
+      const today = new Date().toLocaleDateString("zh-CN", {
+        timeZone: "Asia/Shanghai",
+        year: "numeric", month: "2-digit", day: "2-digit", weekday: "short",
+      });
+      const cards = buildFeishuCards(headlines, {} as any, today);
+      for (const card of cards) await sendCard(card);
+    }
+  }
+}
+
+function simpleScore(item: NewsItem): number {
+  let score = 0;
+  const kw = ["AI", "发布", "上市", "突破", "政策", "制裁", "芯片", "股市", "A股", "涨停", "跌停", "大模型"];
+  for (const k of kw) {
+    if (item.title.includes(k) || item.summary.includes(k)) score += 3;
+  }
+  if (item.pubDate) {
+    const h = (Date.now() - new Date(item.pubDate).getTime()) / 3600000;
+    if (h < 6) score += 3;
+    else if (h < 12) score += 2;
+    else if (h < 24) score += 1;
+  }
+  return score;
 }
 
 app.get("/health", (_req: Request, res: Response) => {

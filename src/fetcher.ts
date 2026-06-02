@@ -3,8 +3,8 @@ import axios from "axios";
 import type { NewsItem } from "./types.js";
 import { feedsConfig } from "./config.js";
 
-const FETCH_TIMEOUT = 12000; // 单源超时 12s
-const GLOBAL_DEADLINE = 15000; // 总截止 15s
+const FETCH_TIMEOUT = 12000;
+const GLOBAL_DEADLINE = 15000;
 
 const parser = new Parser({
   timeout: FETCH_TIMEOUT,
@@ -59,16 +59,52 @@ async function fetchZhihuDaily(): Promise<NewsItem[]> {
   }));
 }
 
+// 批量拉取：等所有源完成
 export async function fetchAllNews(): Promise<NewsItem[]> {
-  // 收集所有拉取任务
   const allResults: NewsItem[] = [];
   const pending: Promise<void>[] = [];
 
   for (const [category, feedList] of Object.entries(feedsConfig.feeds)) {
     for (const feed of feedList) {
-      const task = (feed.name === "知乎日报" ? fetchZhihuDaily() : fetchRSS(feed.name, feed.url, category))
-        .then((items) => {
+      const task = (feed.name === "知乎日报"
+        ? fetchZhihuDaily()
+        : fetchRSS(feed.name, feed.url, category)
+      )
+        .then((items) => { allResults.push(...items); })
+        .catch((err) => {
+          console.warn(`[WARN] 拉取失败 ${feed.name}: ${(err as Error).message}`);
+        });
+      pending.push(task);
+    }
+  }
+
+  const deadline = new Promise<void>((r) => { setTimeout(r, GLOBAL_DEADLINE); });
+  await Promise.race([Promise.all(pending), deadline]);
+
+  console.log(`[INFO] 共拉取 ${allResults.length} 条新闻`);
+  return allResults;
+}
+
+// 流式拉取：每个源完成立刻回调
+export async function fetchAllNewsStreaming(
+  onSource: (name: string, items: NewsItem[], isFirst: boolean) => Promise<void>
+): Promise<NewsItem[]> {
+  const allResults: NewsItem[] = [];
+  const pending: Promise<void>[] = [];
+  let firstSent = false;
+
+  for (const [category, feedList] of Object.entries(feedsConfig.feeds)) {
+    for (const feed of feedList) {
+      const task = (feed.name === "知乎日报"
+        ? fetchZhihuDaily()
+        : fetchRSS(feed.name, feed.url, category)
+      )
+        .then(async (items) => {
           allResults.push(...items);
+          if (items.length > 0) {
+            await onSource(feed.name, items, !firstSent);
+            firstSent = true;
+          }
         })
         .catch((err) => {
           console.warn(`[WARN] 拉取失败 ${feed.name}: ${(err as Error).message}`);
@@ -77,13 +113,9 @@ export async function fetchAllNews(): Promise<NewsItem[]> {
     }
   }
 
-  // 全局截止时间：15s 后不管怎样都返回
-  const deadline = new Promise<void>((resolve) =>
-    setTimeout(resolve, GLOBAL_DEADLINE)
-  );
-
+  const deadline = new Promise<void>((r) => { setTimeout(r, GLOBAL_DEADLINE); });
   await Promise.race([Promise.all(pending), deadline]);
 
-  console.log(`[INFO] 共拉取 ${allResults.length} 条新闻 (${pending.length} 个源, ${GLOBAL_DEADLINE / 1000}s 截止)`);
+  console.log(`[INFO] 共拉取 ${allResults.length} 条新闻`);
   return allResults;
 }

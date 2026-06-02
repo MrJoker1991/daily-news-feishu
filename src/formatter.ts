@@ -2,7 +2,7 @@ import type { NewsItem, FeishuCard } from "./types.js";
 
 const GREY = (t: string) => `<font color='grey'>${t}</font>`;
 
-function periodTitle(): { label: string; icon: string } {
+export function periodTitle(): { label: string; icon: string } {
   const h = new Date().getHours();
   if (h < 12) return { icon: "🌅", label: "新闻早报" };
   if (h < 18) return { icon: "☀️", label: "午间速递" };
@@ -142,6 +142,56 @@ function makeCard(elements: Record<string, any>[], part: number): FeishuCard {
         content: part > 0 ? `${icon} ${label} (${part})` : `${icon} ${label}`,
       },
       template: "blue",
+    },
+    elements,
+  };
+}
+
+// 流式单源卡片
+export function buildSourceCard(
+  source: string,
+  items: NewsItem[],
+  isFirst: boolean
+): FeishuCard {
+  const now = new Date().toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" });
+  const { icon, label } = periodTitle();
+
+  const parts: string[] = [];
+  for (let i = 0; i < Math.min(items.length, 8); i++) {
+    const item = items[i];
+    const link = item.link ? `[→](${item.link})` : "";
+    parts.push(`**${item.title}**  ${GREY(link)}`);
+  }
+
+  const elements: Record<string, any>[] = [];
+
+  // 第一张卡片带标题头
+  if (isFirst) {
+    elements.push({
+      tag: "markdown",
+      content: `${icon} **${label}**\n${GREY(now)}`,
+    });
+    elements.push({ tag: "hr" });
+  }
+
+  elements.push({
+    tag: "markdown",
+    content: `**${source}**  ${GREY(`(${items.length}条)`)}\n${parts.join("\n\n")}`,
+  });
+
+  if (isFirst) {
+    elements.push({ tag: "hr" });
+    elements.push({
+      tag: "note",
+      elements: [{ tag: "plain_text", content: `🤖 更多内容陆续加载中…` }],
+    });
+  }
+
+  return {
+    config: { wide_screen_mode: true },
+    header: {
+      title: { tag: "plain_text", content: `${source}` },
+      template: isFirst ? "blue" : "wathet",
     },
     elements,
   };
