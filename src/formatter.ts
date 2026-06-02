@@ -9,43 +9,49 @@ const CATEGORY_ICONS: Record<string, string> = {
   "综合": "📋",
 };
 
-// 头条：编号 + 来源标签
+const GAP = "\n\n"; // 条目间距
+const GREY = (t: string) => `<font color='grey'>${t}</font>`;
+
 function buildHeadlinesSection(items: NewsItem[]): string {
   if (items.length === 0) return "";
-  const lines = ["**🔥 今日头条**\n"];
+  const parts: string[] = [];
   for (let i = 0; i < Math.min(items.length, 12); i++) {
     const item = items[i];
-    const link = item.link ? ` [阅读](${item.link})` : "";
-    lines.push(`${i + 1}. **${item.title}**  ${link}`);
-    lines.push(`   <font color='grey'>${item.source} · 热度 ${item.score}</font>`);
+    const link = item.link ? `[阅读](${item.link})` : "";
+    parts.push(
+      [
+        `**${i + 1}.  ${item.title}**  ${GREY(link)}`,
+        GREY(`　　　${item.source}  ·  热度 ${item.score}`),
+      ].join("\n")
+    );
   }
-  return lines.join("\n");
+  return parts.join(GAP);
 }
 
-// 分类新闻：简洁条目
 function buildCategorySection(catName: string, items: NewsItem[]): string {
   if (items.length === 0) return "";
-  const icon = CATEGORY_ICONS[catName] || "📌";
-  const lines = [`**${icon} ${catName}**\n`];
+  const parts: string[] = [];
   for (let i = 0; i < Math.min(items.length, 6); i++) {
     const item = items[i];
-    const link = item.link ? ` [→](${item.link})` : "";
-    lines.push(`• **${item.title}**${link}`);
+    const link = item.link ? `[→](${item.link})` : "";
+    parts.push(
+      [
+        `**${item.title}**  ${GREY(link)}`,
+        GREY(`　　　${item.source}`),
+      ].join("\n")
+    );
   }
-  return lines.join("\n");
+  return parts.join(GAP);
 }
 
-// 一句话看点
 function buildOneLiners(items: NewsItem[]): string {
   const pool = items.sort(() => Math.random() - 0.5).slice(0, 8);
-  const lines = ["**📝 一句话速览**\n"];
+  const parts: string[] = [];
   for (const item of pool) {
-    const link = item.link ? ` [→](${item.link})` : "";
-    // 截取摘要第一句
-    const oneLine = item.summary?.split(/[。！？]/)[0] || item.title;
-    lines.push(`• ${oneLine.slice(0, 80)}${link}`);
+    const oneLine = item.summary?.split(/[。！？\n]/)[0] || item.title;
+    parts.push(GREY(oneLine.slice(0, 100)));
   }
-  return lines.join("\n");
+  return parts.join(GAP);
 }
 
 export function buildFeishuCards(
@@ -55,19 +61,20 @@ export function buildFeishuCards(
 ): FeishuCard[] {
   const now = new Date().toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" });
 
-  // 收集所有分类板块
   const sections: Record<string, any>[] = [];
 
-  // 标题
+  // 标题区
   sections.push({
     tag: "markdown",
-    content: `📰 **每日新闻早报 — ${dateStr}**`,
+    content: `📰 **每日新闻早报**\n${GREY(dateStr)}`,
   });
-
   sections.push({ tag: "hr" });
 
   // 今日头条
-  sections.push({ tag: "markdown", content: buildHeadlinesSection(headlines) });
+  sections.push({
+    tag: "markdown",
+    content: `🔥 **今日头条**\n${buildHeadlinesSection(headlines)}`,
+  });
   sections.push({ tag: "hr" });
 
   // 各分类
@@ -75,28 +82,29 @@ export function buildFeishuCards(
   for (const cat of catOrder) {
     const items = categorized[cat];
     if (!items || items.length === 0) continue;
-    sections.push({ tag: "markdown", content: buildCategorySection(cat, items) });
+    const icon = CATEGORY_ICONS[cat] || "📌";
+    sections.push({
+      tag: "markdown",
+      content: `${icon} **${cat}**\n${buildCategorySection(cat, items)}`,
+    });
     sections.push({ tag: "hr" });
   }
 
-  // 一句话看点
+  // 一句话速览
   const allItems = Object.values(categorized).flat();
-  sections.push({ tag: "markdown", content: buildOneLiners(allItems) });
+  sections.push({
+    tag: "markdown",
+    content: `📝 **今日速览**\n${buildOneLiners(allItems)}`,
+  });
   sections.push({ tag: "hr" });
 
   // 页脚
   sections.push({
     tag: "note",
-    elements: [
-      {
-        tag: "plain_text",
-        content: `🤖 自动生成于 ${now}`,
-      },
-    ],
+    elements: [{ tag: "plain_text", content: `🤖 自动生成于 ${now}` }],
   });
 
-  // 估算每张卡片能装多少个 section，超出则分卡
-  // Feishu 卡片消息 content 总长度限制约 30KB（JSON 序列化后）
+  // 分卡
   const maxCardSize = 25000;
   const cards: FeishuCard[] = [];
   let currentElements: Record<string, any>[] = [];
@@ -120,10 +128,7 @@ export function buildFeishuCards(
   return cards;
 }
 
-function makeCard(
-  elements: Record<string, any>[],
-  part: number
-): FeishuCard {
+function makeCard(elements: Record<string, any>[], part: number): FeishuCard {
   return {
     config: { wide_screen_mode: true },
     header: {
@@ -133,6 +138,6 @@ function makeCard(
       },
       template: "blue",
     },
-    elements: elements,
+    elements,
   };
 }
