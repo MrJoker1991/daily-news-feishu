@@ -14,6 +14,7 @@ export const FEISHU_APP_SECRET = process.env.FEISHU_APP_SECRET || "";
 export const FEISHU_VERIFICATION_TOKEN =
   process.env.FEISHU_VERIFICATION_TOKEN || "";
 export const PORT = parseInt(process.env.PORT || "3000", 10);
+export const WEATHER_CITY = process.env.WEATHER_CITY || "上海";
 export const CRON_EXPRESSIONS = (
   process.env.CRON_EXPRESSIONS ||
   "30 9 * * *,0 13 * * *,0 20 * * *"

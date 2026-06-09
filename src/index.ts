@@ -5,10 +5,11 @@ import { pushToFeishuWebhook } from "./pusher.js";
 import { startScheduler } from "./scheduler.js";
 import { startServer } from "./server.js";
 import { loadPushedLinks, savePushedLinks, getNewItems } from "./push-log.js";
+import { WEATHER_CITY } from "./config.js";
 
 async function fetchExtras(): Promise<{ weather?: string; stock?: string }> {
   const [weather, stock] = await Promise.all([
-    fetchWeather("上海"),
+    fetchWeather(WEATHER_CITY),
     fetchStockIndex(),
   ]);
 

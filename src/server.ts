@@ -1,6 +1,6 @@
 import express from "express";
 import type { Request, Response } from "express";
-import { FEISHU_VERIFICATION_TOKEN, PORT, feedsConfig } from "./config.js";
+import { FEISHU_VERIFICATION_TOKEN, PORT, feedsConfig, WEATHER_CITY } from "./config.js";
 import { sendCardsToChat, sendCardsToUser } from "./feishu-api.js";
 import { fetchAllNewsStreaming, fetchWeather, fetchStockIndex } from "./fetcher.js";
 import { processNews } from "./processor.js";
@@ -176,7 +176,7 @@ async function streamFetch(
   // 天气和股市
   let weatherStr: string | undefined;
   let stockStr: string | undefined;
-  const [weather, stock] = await Promise.all([fetchWeather("上海"), fetchStockIndex()]);
+  const [weather, stock] = await Promise.all([fetchWeather(WEATHER_CITY), fetchStockIndex()]);
   if (weather) weatherStr = `${weather.text} ${weather.temp}`;
   if (stock) {
     const arrow = parseFloat(stock.change) >= 0 ? "↑" : "↓";
