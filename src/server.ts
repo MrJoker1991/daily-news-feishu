@@ -2,9 +2,10 @@ import express from "express";
 import type { Request, Response } from "express";
 import { FEISHU_VERIFICATION_TOKEN, PORT, feedsConfig } from "./config.js";
 import { sendCardsToChat, sendCardsToUser } from "./feishu-api.js";
-import { fetchAllNewsStreaming } from "./fetcher.js";
+import { fetchAllNewsStreaming, fetchWeather, fetchStockIndex } from "./fetcher.js";
 import { processNews } from "./processor.js";
 import { buildSummaryCard, buildSourceCard } from "./formatter.js";
+import { loadPushedLinks, savePushedLinks, getNewItems } from "./push-log.js";
 import type { FeishuCard, NewsItem } from "./types.js";
 
 const DEBUG = process.env.DEBUG === "1";
@@ -151,29 +152,53 @@ async function streamFetch(
   sendCard: (card: FeishuCard) => Promise<void>
 ): Promise<void> {
   const allItems: NewsItem[] = [];
+  let sourceIndex = 0;
 
-  // 统计总源数
   let totalSources = 0;
   for (const list of Object.values(feedsConfig.feeds)) totalSources += list.length;
 
-  await fetchAllNewsStreaming(async (name, items, isFirst) => {
+  await fetchAllNewsStreaming(async (name, items, _isFirst) => {
     for (const item of items) item.score = simpleScore(item);
     items.sort((a, b) => b.score - a.score);
 
-    const card = buildSourceCard(name, items, isFirst, totalSources);
+    const card = buildSourceCard(name, items, sourceIndex, totalSources);
     await sendCard(card);
     allItems.push(...items);
+    sourceIndex++;
   });
 
-  // 所有源拉完后，发一张汇总
-  if (allItems.length > 0) {
-    const { headlines } = processNews(allItems);
+  // 过滤已推送过的
+  const { headlines } = processNews(allItems);
+  const pushed = loadPushedLinks();
+  const { fresh } = getNewItems(allItems, pushed);
+  const itemsToPush = fresh.length >= 20 ? fresh : allItems;
+
+  // 天气和股市
+  let weatherStr: string | undefined;
+  let stockStr: string | undefined;
+  const [weather, stock] = await Promise.all([fetchWeather("上海"), fetchStockIndex()]);
+  if (weather) weatherStr = `${weather.text} ${weather.temp}`;
+  if (stock) {
+    const arrow = parseFloat(stock.change) >= 0 ? "↑" : "↓";
+    stockStr = `上证 ${stock.price} ${arrow}${stock.changePct}%`;
+  }
+
+  if (itemsToPush.length > 0) {
     const today = new Date().toLocaleDateString("zh-CN", {
       timeZone: "Asia/Shanghai",
       year: "numeric", month: "2-digit", day: "2-digit", weekday: "short",
     });
-    const cards = buildSummaryCard(headlines, allItems, today);
+    const cards = buildSummaryCard(
+      headlines,
+      itemsToPush,
+      today,
+      { weather: weatherStr, stock: stockStr }
+    );
     for (const card of cards) await sendCard(card);
+
+    // 记录已推送
+    const allLinks = itemsToPush.map((item) => item.link).filter(Boolean);
+    savePushedLinks(allLinks);
   }
 }
 

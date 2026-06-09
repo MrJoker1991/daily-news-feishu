@@ -16,7 +16,6 @@ const SOURCE_ORDER = [
   "百度热搜", "知乎日报",
 ];
 
-// 统一的条目格式
 function formatItems(items: NewsItem[], maxCount: number, showScore = false): string {
   const parts: string[] = [];
   for (let i = 0; i < Math.min(items.length, maxCount); i++) {
@@ -30,36 +29,45 @@ function formatItems(items: NewsItem[], maxCount: number, showScore = false): st
   return parts.join("\n\n");
 }
 
-// 单源卡片（流式 + 批量共用）
+function groupBySource(items: NewsItem[]): Map<string, NewsItem[]> {
+  const map = new Map<string, NewsItem[]>();
+  for (const item of items) {
+    const list = map.get(item.source) || [];
+    list.push(item);
+    map.set(item.source, list);
+  }
+  return new Map([...map.entries()].sort((a, b) => b[1].length - a[1].length));
+}
+
+// 单源卡片（带序号 n/total）
 export function buildSourceCard(
   source: string,
   items: NewsItem[],
-  isFirst: boolean,
-  totalSources: number
+  index: number,
+  total: number
 ): FeishuCard {
   const now = new Date().toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" });
   const { icon, label } = periodTitle();
-  const elements: Record<string, any>[] = [];
+  const isFirst = index === 0;
+  const tag = `${index + 1}/${total}`;
 
   const body = `**${source}**  ${GREY(`(${items.length}条)`)}\n${formatItems(items, 8)}`;
 
+  const elements: Record<string, any>[] = [];
+
   if (isFirst) {
-    // 第一张：带标题头和头条
     elements.push({
       tag: "markdown",
-      content: `${icon} **${label}**\n${GREY(now)}`,
+      content: `${icon} **${label}**  ${GREY(tag)}\n${GREY(now)}`,
     });
     elements.push({ tag: "hr" });
 
-    // 取本来源前 3 条作为头条预览
     const top3 = items.slice(0, 3);
     if (top3.length > 0) {
-      const hlParts: string[] = [];
-      for (let i = 0; i < top3.length; i++) {
-        const item = top3[i];
+      const hlParts = top3.map((item, i) => {
         const link = item.link ? `[阅读](${item.link})` : "";
-        hlParts.push(`**${i + 1}.  ${item.title}**  ${GREY(link)}`);
-      }
+        return `**${i + 1}.  ${item.title}**  ${GREY(link)}`;
+      });
       elements.push({
         tag: "markdown",
         content: `🔥 **今日头条**\n${hlParts.join("\n\n")}`,
@@ -67,7 +75,10 @@ export function buildSourceCard(
       elements.push({ tag: "hr" });
     }
 
-    elements.push({ tag: "markdown", content: `${body}\n\n---\n${GREY(`共 ${totalSources} 个来源 · 更多内容加载中…`)}` });
+    elements.push({
+      tag: "markdown",
+      content: `${body}\n\n---\n${GREY(`共 ${total} 个来源 · 陆续加载中…`)}`,
+    });
   } else {
     elements.push({ tag: "markdown", content: body });
   }
@@ -77,7 +88,7 @@ export function buildSourceCard(
     header: {
       title: {
         tag: "plain_text",
-        content: isFirst ? `${icon} ${label}` : `📌 ${source}`,
+        content: isFirst ? `${icon} ${label}` : `${tag} 📌 ${source}`,
       },
       template: isFirst ? "blue" : "wathet",
     },
@@ -85,11 +96,12 @@ export function buildSourceCard(
   };
 }
 
-// 汇总卡片（流式结束 + 批量定时推送）
+// 汇总卡片（带序号 + 天气股市）
 export function buildSummaryCard(
   headlines: NewsItem[],
   allItems: NewsItem[],
-  dateStr: string
+  dateStr: string,
+  extras?: { weather?: string; stock?: string }
 ): FeishuCard[] {
   const now = new Date().toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" });
   const { icon, label } = periodTitle();
@@ -97,9 +109,13 @@ export function buildSummaryCard(
   const elements: Record<string, any>[] = [];
 
   // 标题
+  let subtitle = `${dateStr}  ·  ${allItems.length} 条新闻`;
+  if (extras?.weather) subtitle += `  ·  ${extras.weather}`;
+  if (extras?.stock) subtitle += `  ·  ${extras.stock}`;
+
   elements.push({
     tag: "markdown",
-    content: `${icon} **${label}**\n${GREY(dateStr + "  ·  " + allItems.length + " 条新闻")}`,
+    content: `${icon} **${label}**\n${GREY(subtitle)}`,
   });
   elements.push({ tag: "hr" });
 
@@ -147,17 +163,8 @@ export function buildSummaryCard(
   for (const sec of elements) {
     const secSize = JSON.stringify(sec).length;
     if (currentSize + secSize > maxCardSize && currentElements.length > 0) {
-      cards.push({
-        config: { wide_screen_mode: true },
-        header: {
-          title: {
-            tag: "plain_text",
-            content: cards.length > 0 ? `${icon} ${label} (${cards.length + 1})` : `${icon} ${label}`,
-          },
-          template: "blue",
-        },
-        elements: currentElements,
-      });
+      const cardNum = cards.length + 1;
+      cards.push(makeSubCard(currentElements, cardNum));
       currentElements = [];
       currentSize = 0;
     }
@@ -166,25 +173,23 @@ export function buildSummaryCard(
   }
 
   if (currentElements.length > 0) {
-    cards.push({
-      config: { wide_screen_mode: true },
-      header: {
-        title: { tag: "plain_text", content: `${icon} ${label}` },
-        template: "blue",
-      },
-      elements: currentElements,
-    });
+    cards.push(makeSubCard(currentElements, cards.length > 0 ? cards.length + 1 : 0));
   }
 
   return cards;
 }
 
-function groupBySource(items: NewsItem[]): Map<string, NewsItem[]> {
-  const map = new Map<string, NewsItem[]>();
-  for (const item of items) {
-    const list = map.get(item.source) || [];
-    list.push(item);
-    map.set(item.source, list);
-  }
-  return new Map([...map.entries()].sort((a, b) => b[1].length - a[1].length));
+function makeSubCard(elements: Record<string, any>[], part: number): FeishuCard {
+  const { icon, label } = periodTitle();
+  return {
+    config: { wide_screen_mode: true },
+    header: {
+      title: {
+        tag: "plain_text",
+        content: part > 0 ? `${icon} ${label} (${part})` : `${icon} ${label}`,
+      },
+      template: "blue",
+    },
+    elements,
+  };
 }

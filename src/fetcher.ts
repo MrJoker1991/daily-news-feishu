@@ -59,7 +59,60 @@ async function fetchZhihuDaily(): Promise<NewsItem[]> {
   }));
 }
 
-// 批量拉取：等所有源完成
+// 天气（wttr.in 免费 API）
+export interface WeatherInfo {
+  text: string;
+  temp: string;
+  humidity: string;
+}
+
+export async function fetchWeather(
+  city: string = "Beijing"
+): Promise<WeatherInfo | null> {
+  try {
+    const { data } = await axios.get(
+      `https://wttr.in/${encodeURIComponent(city)}?format=%C|%t|%h`,
+      { timeout: 8000 }
+    );
+    const parts = (data as string).split("|");
+    return {
+      text: parts[0]?.trim() || "",
+      temp: parts[1]?.trim() || "",
+      humidity: parts[2]?.trim() || "",
+    };
+  } catch {
+    return null;
+  }
+}
+
+// A股指数（东方财富免费接口）
+export interface StockIndex {
+  name: string;
+  price: string;
+  change: string;
+  changePct: string;
+}
+
+export async function fetchStockIndex(): Promise<StockIndex | null> {
+  try {
+    const { data } = await axios.get(
+      "https://push2.eastmoney.com/api/qt/stock/get?secid=1.000001&fields=f43,f44,f45,f46,f47,f48,f170",
+      { timeout: 8000 }
+    );
+    const d = data.data;
+    if (!d) return null;
+    return {
+      name: "上证指数",
+      price: (d.f43 / 100).toFixed(2),
+      change: (d.f169 / 100).toFixed(2),
+      changePct: (d.f170 / 100).toFixed(2),
+    };
+  } catch {
+    return null;
+  }
+}
+
+// 批量拉取
 export async function fetchAllNews(): Promise<NewsItem[]> {
   const allResults: NewsItem[] = [];
   const pending: Promise<void>[] = [];
@@ -85,7 +138,7 @@ export async function fetchAllNews(): Promise<NewsItem[]> {
   return allResults;
 }
 
-// 流式拉取：每个源完成立刻回调
+// 流式拉取
 export async function fetchAllNewsStreaming(
   onSource: (name: string, items: NewsItem[], isFirst: boolean) => Promise<void>
 ): Promise<NewsItem[]> {
